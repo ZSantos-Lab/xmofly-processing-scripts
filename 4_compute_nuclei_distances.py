@@ -58,7 +58,10 @@ def compute_closest_neighbors(distance_array):
     for n in range(2, 10):
         gmm = GaussianMixture(n_components=n, random_state=42)
         labels = gmm.fit_predict(data_reshaped)
-        score = silhouette_score(data_reshaped, labels)
+        try:
+            score = silhouette_score(data_reshaped, labels)
+        except:
+            score = -1
         silhouette_scores.append(score)
     
     best_n = range(2, 10)[np.argmax(silhouette_scores)]
