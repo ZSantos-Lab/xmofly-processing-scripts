@@ -100,7 +100,7 @@ def main(datapath='.', pixelInfoPath=None):
             'distance_std_closest_neighbor', 
             'aspect_ratio',
             'nucleus_total_area_scaled',
-            'area_nhsester_corrected_scaled',
+            'area_nucleolus_corrected_scaled',
         ]] = np.nan
 
         print("Calculating scaled volume (in microns^3) and distances...")
@@ -116,7 +116,7 @@ def main(datapath='.', pixelInfoPath=None):
 
             dataframe.at[row.Index, 'aspect_ratio'] = row.axis_major_length / row.axis_minor_length if row.axis_minor_length > 0 else np.nan
             dataframe.at[row.Index, 'nucleus_total_area_scaled'] = row.nucleus_total_area * pixel_volume
-            dataframe.at[row.Index, 'area_nhsester_corrected_scaled'] = row.area_nhsester_corrected * pixel_volume
+            dataframe.at[row.Index, 'area_nucleolus_corrected_scaled'] = row.area_nucleolus_corrected * pixel_volume
 
             if volume_corrected > 500.: #TODO: better approach to set threshold, rejects small segmentation mistakes
                 distances = []
