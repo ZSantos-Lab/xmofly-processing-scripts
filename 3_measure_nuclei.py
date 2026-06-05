@@ -258,7 +258,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
 
     print("Calculating corrected shape measurements for each nucleus...")
 
-    measurements_df[['area_corrected', 'nucleus_total_area', 'euler_number_corrected', 'euler_number_nucleoli_corrected', 'solidity_corrected', 'area_nucleolus_corrected', 'dna_volume_fraction', 'nucleolus_volume_fraction', 'distance_to_center', 'distance_to_border', 'shannon_entropy_nuclei', 'shannon_entropy_mask_nuclei', 'shannon_entropy_nhsester', 'nhsester_mean_intensity', 'nhsester_std_intensity', 'nhsester_max_intensity', 'nhsester_min_intensity']] = np.nan
+    measurements_df[['area_corrected', 'nucleus_total_area', 'euler_number_corrected', 'euler_number_nucleoli_corrected', 'solidity_corrected', 'area_nucleolus_corrected', 'dna_volume_fraction', 'nucleolus_volume_fraction', 'distance_to_center', 'distance_to_border', 'shannon_entropy_nuclei', 'shannon_entropy_nhsester', 'nhsester_mean_intensity', 'nhsester_std_intensity', 'nhsester_max_intensity', 'nhsester_min_intensity']] = np.nan
 
     for row in tqdm(measurements_df.itertuples(), total=len(measurements_df), desc="Calculating corrected shape measurements"):
         bbox_slice = row.slice
