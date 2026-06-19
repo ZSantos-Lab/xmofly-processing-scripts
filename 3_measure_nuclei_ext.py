@@ -7,7 +7,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="skimage.measure.
 
 import numpy as np
 from scipy.ndimage import gaussian_filter
-from skimage.measure import regionprops, regionprops_table, label, shannon_entropy, graycomatrix, graycoprops
+from skimage.measure import regionprops, regionprops_table, label, shannon_entropy
+from skimage.feature import graycomatrix, graycoprops
 from skimage.filters import threshold_otsu
 from skimage.morphology import remove_small_objects
 import pandas as pd
@@ -126,6 +127,8 @@ def get_gray_coocurrence_matrix(bbox_slice, image_channel, distances=[0], angles
     '''
     glcm_properties = ['contrast', 'dissimilarity', 'homogeneity'] # more propertoes available: 'energy', 'correlation', 'ASM'
     image_crop = image_channel[bbox_slice]
+    if image_crop.shape > 3:
+        image_crop = image_crop[image_crop.shape[0]//2] # take the middle slice if 3D
     glcm = graycomatrix(image_crop, distances=distances, angles=angles, levels=levels)
     glcm_features = {prop: graycoprops(glcm, prop) for prop in glcm_properties}
     return {
@@ -142,7 +145,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     # database_name = "name" # TODO: extract path and name from database
 
     current_dir = Path.cwd()
-    save_path = current_dir / "nuclei_measurements"
+    save_path = current_dir / "nuclei_measurements_ext"
     if not save_path.exists():
         os.mkdir(save_path)
     
@@ -247,9 +250,8 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
 
     for row in tqdm(measurements_df.itertuples(), total=len(measurements_df), desc="Calculating extended shape measurements"):
         bbox_slice = row.slice
-        corrected_stats = get_corrected_shape_measurements(bbox_slice, nuclei_channel_normalized, nhsester_channel_normalized, threshold_nuclei_otsu)
-        texture_stats_dna = get_gray_coocurrence_matrix(bbox_slice, nuclei_channel, levels=256)
-        texture_stats_nhsester = get_gray_coocurrence_matrix(bbox_slice, nhsester_channel, levels=256)
+        texture_stats_dna = get_gray_coocurrence_matrix(bbox_slice, nuclei_channel, distances=glcm_distances, angles=glcm_angles, levels=65535)
+        texture_stats_nhsester = get_gray_coocurrence_matrix(bbox_slice, nhsester_channel, distances=glcm_distances, angles=glcm_angles, levels=65535)
         measurements_df.at[row.Index, 'shannon_entropy_nuclei'] = shannon_entropy(nuclei_channel[bbox_slice])
         measurements_df.at[row.Index, 'shannon_entropy_nhsester'] = shannon_entropy(nhsester_channel[bbox_slice])
 
