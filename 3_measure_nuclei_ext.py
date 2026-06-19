@@ -126,9 +126,11 @@ def get_gray_coocurrence_matrix(bbox_slice, image_channel, distances=[0], angles
     returns the glcm
     '''
     glcm_properties = ['contrast', 'dissimilarity', 'homogeneity'] # more propertoes available: 'energy', 'correlation', 'ASM'
-    image_crop = image_channel[bbox_slice]
-    if image_crop.shape > 3:
-        image_crop = image_crop[image_crop.shape[0]//2] # take the middle slice if 3D
+    image_crop = np.array(image_channel[bbox_slice])
+    if len(image_crop.shape) > 2:
+        image_crop = image_crop[image_crop.shape[0]//2, ...] # take the middle slice if 3D
+        image_crop =  image_crop.squeeze()
+    image_crop = (image_crop / image_crop.max() * (levels - 1)).astype('uint16') # rescale to the number of levels
     glcm = graycomatrix(image_crop, distances=distances, angles=angles, levels=levels)
     glcm_features = {prop: graycoprops(glcm, prop) for prop in glcm_properties}
     return {
@@ -241,39 +243,39 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     n_props = len(glcm_angles) * len(glcm_distances)
 
     for i in range(n_props):
-        measurements_df[f'glcm_contrast_dna_distance_{i}'] = np.nan
-        measurements_df[f'glcm_dissimilarity_dna_distance_{i}'] = np.nan
-        measurements_df[f'glcm_homogeneity_dna_distance_{i}'] = np.nan
-        measurements_df[f'glcm_contrast_nhsester_distance_{i}'] = np.nan
-        measurements_df[f'glcm_dissimilarity_nhsester_distance_{i}'] = np.nan
-        measurements_df[f'glcm_homogeneity_nhsester_distance_{i}'] = np.nan
+        measurements_df[f'glcm_contrast_dna_{i}'] = np.nan
+        measurements_df[f'glcm_dissimilarity_dna_{i}'] = np.nan
+        measurements_df[f'glcm_homogeneity_dna_{i}'] = np.nan
+        measurements_df[f'glcm_contrast_nhsester_{i}'] = np.nan
+        measurements_df[f'glcm_dissimilarity_nhsester_{i}'] = np.nan
+        measurements_df[f'glcm_homogeneity_nhsester_{i}'] = np.nan
 
     for row in tqdm(measurements_df.itertuples(), total=len(measurements_df), desc="Calculating extended shape measurements"):
         bbox_slice = row.slice
-        texture_stats_dna = get_gray_coocurrence_matrix(bbox_slice, nuclei_channel, distances=glcm_distances, angles=glcm_angles, levels=65535)
-        texture_stats_nhsester = get_gray_coocurrence_matrix(bbox_slice, nhsester_channel, distances=glcm_distances, angles=glcm_angles, levels=65535)
+        texture_stats_dna = get_gray_coocurrence_matrix(bbox_slice, nuclei_channel, distances=glcm_distances, angles=glcm_angles, levels=256)
+        texture_stats_nhsester = get_gray_coocurrence_matrix(bbox_slice, nhsester_channel, distances=glcm_distances, angles=glcm_angles, levels=256)
         measurements_df.at[row.Index, 'shannon_entropy_nuclei'] = shannon_entropy(nuclei_channel[bbox_slice])
         measurements_df.at[row.Index, 'shannon_entropy_nhsester'] = shannon_entropy(nhsester_channel[bbox_slice])
 
         contrast_array = texture_stats_dna['contrast'].flatten()
         for i in range(len(contrast_array)):
-            measurements_df.at[row.Index, f'glcm_contrast_dna_distance_{i}'] = contrast_array[i]
+            measurements_df.at[row.Index, f'glcm_contrast_dna_{i}'] = contrast_array[i]
         dissimilarity_array = texture_stats_dna['dissimilarity'].flatten()
         for i in range(len(dissimilarity_array)):
-            measurements_df.at[row.Index, f'glcm_dissimilarity_dna_distance_{i}'] = dissimilarity_array[i]
+            measurements_df.at[row.Index, f'glcm_dissimilarity_dna_{i}'] = dissimilarity_array[i]
         homogeneity_array = texture_stats_dna['homogeneity'].flatten()
         for i in range(len(homogeneity_array)):
-            measurements_df.at[row.Index, f'glcm_homogeneity_dna_distance_{i}'] = homogeneity_array[i]
+            measurements_df.at[row.Index, f'glcm_homogeneity_dna_{i}'] = homogeneity_array[i]
         
         contrast_array = texture_stats_nhsester['contrast'].flatten()
         for i in range(len(contrast_array)):
-            measurements_df.at[row.Index, f'glcm_contrast_nhsester_distance_{i}'] = contrast_array[i]
+            measurements_df.at[row.Index, f'glcm_contrast_nhsester_{i}'] = contrast_array[i]
         dissimilarity_array = texture_stats_nhsester['dissimilarity'].flatten()
         for i in range(len(dissimilarity_array)):
-            measurements_df.at[row.Index, f'glcm_dissimilarity_nhsester_distance_{i}'] = dissimilarity_array[i]
+            measurements_df.at[row.Index, f'glcm_dissimilarity_nhsester_{i}'] = dissimilarity_array[i]
         homogeneity_array = texture_stats_nhsester['homogeneity'].flatten()
         for i in range(len(homogeneity_array)):
-            measurements_df.at[row.Index, f'glcm_homogeneity_nhsester_distance_{i}'] = homogeneity_array[i]
+            measurements_df.at[row.Index, f'glcm_homogeneity_nhsester_{i}'] = homogeneity_array[i]
         
 
     print(f"Saving measurements to {save_path}")
