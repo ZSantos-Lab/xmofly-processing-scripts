@@ -23,6 +23,7 @@ parser.add_argument("--computeDaskData", help="Load full data to memory or chunk
 parser.add_argument("--resolutionLevel", help="The resolution level to process, 0 for highest resolution. If left empty, prompt will ask for a new value.", default=None, type=int)
 parser.add_argument("--minVoxelVolume", help="The minimum volume of objects to be considered in nb of voxels", default=1000, type=int)
 parser.add_argument("--sigmaGaussian", help="The sigma for the gaussian filter applied to the nuclei channel before thresholding", default=2, type=float)
+parser.add_argument("--computeHighResolutionFeatures", help="Compute high resolution nuclei features", default=False, type=bool)
 
 args = parser.parse_args()
 print(args.dataPath)
@@ -141,17 +142,68 @@ def distance_to_image_border(centroid, image_shape, pixel_scale):
     return min(distances_to_borders)
 
 
-def get_shannon_entropy_mask(image, label_mask, label_id):
+def get_slice_higher_res(bbox_slice, resolution_level, resolution_level_higher):
     '''
-    Calculate the shannon entropy of the image masked by the object (nuclei or other)
-    return the shannon entropy of the masked image
+    Compute corresponding slice in higher resolution from current resolution level and compute resolution level.
+    params:
+    - bbox_slice: the slice of the object in the current resolution level
+    - resolution_level: the current resolution level
+    - resolution_level_higher: the higher resolution level to compute the slice for
+    returns: the slice of the object in the higher resolution level
     '''
-    binary_mask = label_mask == label_id
-    masked_image = image * binary_mask
-    return shannon_entropy(masked_image)
+    factor = 2 ** (resolution_level - resolution_level_higher) # higher in this sense is smaller. Highest is 0 (zero)
+    bbox_higher_res = tuple(slice(int(s.start / factor), int(s.stop * factor)) for s in bbox_slice)
+    return bbox_higher_res
 
 
-def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_level=None, min_voxel_volume=1000, sigma_gaussian=2):
+def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processing_props=None, feature_properties=['label', 'area']):
+    '''
+    Get the coordinates (or slice) of nuclei in lower resolution image data and compute general shape parameters in higher resolution image data.
+    params:
+    - image_data_dask: the dask image data to process
+    - feature_dataframe: dataframe with nuclei features and coordinates
+    - processing_props: dictionary with processing properties (resolution_level, resolution_level_higher, sigma_gaussian, min_voxel_volume, nucleus_channel_min, nucleus_channel_max, nhsester_channel_min, nhsester_channel_max, pixel_sizes, threshold_nuclei_otsu)
+    - feature_properties: list of properties to extract for each nucleus
+    returns: a list of nuclei features in the high resolution image data from lower resolution coordinates.
+    '''
+
+    nuclei_channel = image_data_dask[processing_props['resolution_level_higher']][2]
+    nhsester_channel = image_data_dask[processing_props['resolution_level_higher']][0]
+
+    for index, row in tqdm(feature_dataframe.iterrows(), total=feature_dataframe.shape[0], desc="Processing nuclei in high resolution"):
+        bbox_slice = row['slice']
+        bbox_slice_higher_res = get_slice_higher_res(bbox_slice, processing_props['resolution_level'], processing_props['resolution_level_higher'])
+        nucleus_crop = nuclei_channel[bbox_slice_higher_res].compute()
+        nhsester_crop = nhsester_channel[bbox_slice_higher_res].compute()
+
+        # Normalize the cropped images
+        nucleus_crop_normalized = (nucleus_crop - processing_props['nucleus_channel_min']) / (processing_props['nucleus_channel_max'] - processing_props['nucleus_channel_min'])
+        nhsester_crop_normalized = (nhsester_crop - processing_props['nhsester_channel_min']) / (processing_props['nhsester_channel_max'] - processing_props['nhsester_channel_min'])
+
+        # Apply Gaussian filter to the nucleus channel
+        nucleus_gauss = gaussian_filter(nucleus_crop_normalized, sigma=processing_props['sigma_gaussian'])
+
+        # Thresholding
+        if processing_props['threshold_nuclei_otsu'] is None:
+            threshold_nuclei_otsu = threshold_otsu(nucleus_gauss)
+        else:
+            threshold_nuclei_otsu = processing_props['threshold_nuclei_otsu']
+
+        nuclei_mask = nucleus_gauss > threshold_nuclei_otsu
+        nuclei_labels = label(nuclei_mask)
+        nuclei_labels_filtered = remove_small_objects(nuclei_labels, min_size=processing_props['min_voxel_volume'])
+
+        measurements = regionprops_table(
+            nuclei_labels_filtered,
+            intensity_image=nucleus_crop_normalized,
+            properties=feature_properties
+        )
+        nuclei_props_highres = pd.DataFrame(measurements)    
+
+    return pd.DataFrame(nuclei_props_highres)
+
+
+def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_level=None, min_voxel_volume=1000, sigma_gaussian=2, compute_high_resolution_features=False):
     data_path = Path(datapath)
     filename = data_path.stem
     print(f"Processing {filename}...")
@@ -214,8 +266,12 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     nuclei_channel = image_array[2]
 
     # image normalization
-    nuclei_channel_normalized = (nuclei_channel - nuclei_channel.min()) / (nuclei_channel.max() - nuclei_channel.min())
-    nhsester_channel_normalized = (nhsester_channel - nhsester_channel.min()) / (nhsester_channel.max() - nhsester_channel.min())
+    nucleus_channel_min = nuclei_channel.min()
+    nucleus_channel_max = nuclei_channel.max()
+    nuclei_channel_normalized = (nuclei_channel - nucleus_channel_min) / (nucleus_channel_max - nucleus_channel_min)
+    nhsester_channel_min = nhsester_channel.min()
+    nhsester_channel_max = nhsester_channel.max()
+    nhsester_channel_normalized = (nhsester_channel - nhsester_channel_min) / (nhsester_channel_max - nhsester_channel_min)
 
     # Nuclei segmentation
     nuclei_gauss = gaussian_filter(nuclei_channel_normalized, sigma=sigma_gaussian)
@@ -224,37 +280,42 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     nuclei_mask = nuclei_gauss > threshold_nuclei_otsu
     nuclei_labels = label(nuclei_mask)
 
+    image_processing_props = {
+        "resolution_level": resolution_level,
+        "resolution_level_higher": None,
+        "min_voxel_volume": min_voxel_volume,
+        "sigma_gaussian": sigma_gaussian,
+        "nucleus_channel_min": nucleus_channel_min,
+        "nucleus_channel_max": nucleus_channel_max,
+        "nhsester_channel_min": nhsester_channel_min,
+        "nhsester_channel_max": nhsester_channel_max,
+        "pixel_sizes": pixel_sizes,
+        "threshold_nuclei_otsu": threshold_nuclei_otsu,
+    }
+
     print(f"Found {nuclei_labels.max()} objects in the nuclei channel, before filtering")    
     
     nuclei_labels_filtered = remove_small_objects(nuclei_labels, min_size=min_voxel_volume)
     print(f"Found {np.unique(nuclei_labels_filtered).size - 1} objects in the nuclei channel, after filtering with min size {min_voxel_volume} voxels")
 
+    if compute_high_resolution_features:
+        feature_properties = ['label', 'area', 'bbox', 'centroid', 'slice']
+    else:
+        feature_properties = ['label', 'area', 'area_bbox', 'area_convex', 'bbox', 'centroid', 'intensity_mean', 'intensity_max', 'intensity_min', 'intensity_std', 'num_pixels', 'slice', 'axis_major_length', 'axis_minor_length', 'moments', 'moments_central', 'euler_number', 'solidity']
+
     measurements = regionprops_table(
         nuclei_labels_filtered,
         intensity_image=nuclei_channel_normalized,
-        properties=[
-            'label',
-            'area',
-            'area_bbox',
-            'area_convex',
-            'bbox',
-            'centroid',
-            'intensity_mean',
-            'intensity_max',
-            'intensity_min',
-            'intensity_std',
-            'num_pixels',
-            'slice',
-            'axis_major_length',
-            'axis_minor_length',
-            'moments',
-            'moments_central',
-            'euler_number',
-            'solidity'
-        ],
+        properties=feature_properties,
         spacing=tuple(pixel_sizes)
     )
-    measurements_df = pd.DataFrame(measurements)
+    nuclei_props = pd.DataFrame(measurements)
+
+    if compute_high_resolution_features:
+        image_processing_props['resolution_level_higher'] = resolution_level - 1 if resolution_level > 0 else 0
+        measurements_df = high_resolution_nuclei_features(dask_data, nuclei_props, processing_props=image_processing_props, feature_properties=feature_properties)
+    else:
+        measurements_df = nuclei_props
 
     print("Calculating corrected shape measurements for each nucleus...")
 
@@ -263,7 +324,10 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     for row in tqdm(measurements_df.itertuples(), total=len(measurements_df), desc="Calculating corrected shape measurements"):
         bbox_slice = row.slice
         centroid = [measurements_df.at[row.Index, 'centroid-0'], measurements_df.at[row.Index, 'centroid-1'], measurements_df.at[row.Index, 'centroid-2']]
-        corrected_stats = get_corrected_shape_measurements(bbox_slice, nuclei_channel_normalized, nhsester_channel_normalized, threshold_nuclei_otsu)
+        if compute_high_resolution_features == False:
+            corrected_stats = get_corrected_shape_measurements(bbox_slice, nuclei_channel_normalized, nhsester_channel_normalized, threshold_nuclei_otsu)
+        else:
+            corrected_stats = get_corrected_shape_measurements(bbox_slice, nuclei_channel_normalized, nhsester_channel_normalized, threshold_nuclei_otsu)
         measurements_df.at[row.Index, 'nucleus_total_area'] = corrected_stats['nucleus_total_area']
         measurements_df.at[row.Index, 'area_corrected'] = corrected_stats['area_corrected']
         measurements_df.at[row.Index, 'euler_number_corrected'] = corrected_stats['euler_number_corrected']
@@ -272,7 +336,6 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         measurements_df.at[row.Index, 'distance_to_center'] = distance_to_image_center(centroid, image_array.shape[1:], pixel_sizes)
         measurements_df.at[row.Index, 'distance_to_border'] = distance_to_image_border(centroid, image_array.shape[1:], pixel_sizes)
         measurements_df.at[row.Index, 'shannon_entropy_nuclei'] = shannon_entropy(nuclei_channel_normalized[bbox_slice])
-        # measurements_df.at[row.Index, 'shannon_entropy_mask_nuclei'] = get_shannon_entropy_mask(nuclei_channel, nuclei_labels_filtered, row.label)
         measurements_df.at[row.Index, 'nhsester_mean_intensity'] = corrected_stats['nhsester_mean_intensity']
         measurements_df.at[row.Index, 'nhsester_std_intensity'] = corrected_stats['nhsester_std_intensity']
         measurements_df.at[row.Index, 'nhsester_max_intensity'] = corrected_stats['nhsester_max_intensity']
@@ -287,4 +350,4 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     print("Done.")
 
 if __name__ == "__main__":
-    main(datapath=args.dataPath, extension=args.extension, compute_dask_data=args.computeDaskData, resolution_level=args.resolutionLevel, min_voxel_volume=args.minVoxelVolume, sigma_gaussian=args.sigmaGaussian)
+    main(datapath=args.dataPath, extension=args.extension, compute_dask_data=args.computeDaskData, resolution_level=args.resolutionLevel, min_voxel_volume=args.minVoxelVolume, sigma_gaussian=args.sigmaGaussian, compute_high_resolution_features=args.computeHighResolutionFeatures)
