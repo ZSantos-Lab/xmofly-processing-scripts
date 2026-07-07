@@ -50,8 +50,8 @@ def get_corrected_shape_measurements(bbox_slice, image_nucleus_channel, image_nh
     - nhsester_min_intensity: min intensity of nhsester in the nucleus area
     '''
     if image_nhsester_channel is None and image_props is not None:
-        nucleus_crop = image_nucleus_channel[image_props['resolution_level_higher']][bbox_slice][2]
-        nhsester_crop = image_nucleus_channel[image_props['resolution_level_higher']][bbox_slice][0]
+        nucleus_crop = image_nucleus_channel[image_props['resolution_level_higher']][0][2][bbox_slice]
+        nhsester_crop = image_nucleus_channel[image_props['resolution_level_higher']][0][0][bbox_slice]
         nucleus_crop = (nucleus_crop - image_props['nucleus_channel_min']) / (image_props['nucleus_channel_max'] - image_props['nucleus_channel_min'])
         nhsester_crop = (nhsester_crop - image_props['nhsester_channel_min']) / (image_props['nhsester_channel_max'] - image_props['nhsester_channel_min'])
     else:
@@ -157,7 +157,7 @@ def get_high_res_slice(bbox_slice, resolution_level, resolution_level_higher):
     - resolution_level_higher: the higher resolution level to compute the slice for
     returns: the slice of the object in the higher resolution level
     '''
-    factor = abs(2 ** (resolution_level - resolution_level_higher))
+    factor = 2 ** abs(resolution_level - resolution_level_higher)
     bbox_higher_res = tuple(slice(int(s.start / factor), int(s.stop * factor)) for s in bbox_slice)
     return bbox_higher_res
 
@@ -172,8 +172,8 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
     - feature_properties: list of properties to extract for each nucleus
     returns: a list of nuclei features in the high resolution image data from lower resolution coordinates.
     '''
-    nhsester_channel = image_data_dask[processing_props['resolution_level_higher']][0] # channels are assumed to be in the order of [nhsester, other_channel, nuclei]
-    nuclei_channel = image_data_dask[processing_props['resolution_level_higher']][2]
+    nhsester_channel = image_data_dask[processing_props['resolution_level_higher']][0][0] # channels are assumed to be in the order of [nhsester, other_channel, nuclei]
+    nuclei_channel = image_data_dask[processing_props['resolution_level_higher']][0][2]
 
     nuclei_props_highres = []
 
@@ -326,6 +326,8 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
 
     if compute_high_resolution_features:
         image_processing_props['resolution_level_higher'] = resolution_level - 1 if resolution_level > 0 else 0
+        image_processing_props['min_voxel_volume'] = min_voxel_volume * (2 ** abs(image_processing_props['resolution_level'] - image_processing_props['resolution_level_higher']))  # Adjust min_voxel_volume for higher resolution
+        image_processing_props['sigma_gaussian'] = sigma_gaussian * (2 ** abs(image_processing_props['resolution_level'] - image_processing_props['resolution_level_higher']))  # Adjust sigma for higher resolution
         measurements_df = high_resolution_nuclei_features(dask_data, nuclei_props, processing_props=image_processing_props, feature_properties=feature_properties)
     else:
         measurements_df = nuclei_props
