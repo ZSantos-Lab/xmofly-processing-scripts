@@ -32,7 +32,7 @@ if args.dataPath is None:
     print("Please provide a data path")
     exit(1)
 
-def get_corrected_shape_measurements(bbox_slice, image_nucleus_channel, image_nhsester_channel, nucleus_threshold):
+def get_corrected_shape_measurements(bbox_slice, image_nucleus_channel, image_nhsester_channel, nucleus_threshold, image_props=None):
     '''
     Get corrected shape measurements for a nucleus by combining the information from the nucleus channel and the nhsester channel. The corrected shape measurements are calculated by creating a combined (union) mask of the nucleus and nhsester channels. The corrected shape measurements include solidity, euler number, area, area of nhsester channel, dna area fraction and nhsester area fraction.
     returns: a dictionary with the following keys and values:
@@ -49,8 +49,14 @@ def get_corrected_shape_measurements(bbox_slice, image_nucleus_channel, image_nh
     - nhsester_max_intensity: max intensity of nhsester in the nucleus area
     - nhsester_min_intensity: min intensity of nhsester in the nucleus area
     '''
-    nucleus_crop = image_nucleus_channel[bbox_slice]
-    nhsester_crop = image_nhsester_channel[bbox_slice]
+    if image_nhsester_channel is None and image_props is not None:
+        nucleus_crop = image_nucleus_channel[image_props['resolution_level_higher']][bbox_slice][2]
+        nhsester_crop = image_nucleus_channel[image_props['resolution_level_higher']][bbox_slice][0]
+        nucleus_crop = (nucleus_crop - image_props['nucleus_channel_min']) / (image_props['nucleus_channel_max'] - image_props['nucleus_channel_min'])
+        nhsester_crop = (nhsester_crop - image_props['nhsester_channel_min']) / (image_props['nhsester_channel_max'] - image_props['nhsester_channel_min'])
+    else:
+        nucleus_crop = image_nucleus_channel[bbox_slice]
+        nhsester_crop = image_nhsester_channel[bbox_slice]
 
     nucleus_crop_mask = nucleus_crop > nucleus_threshold
     nucleus_crop_labels = label(nucleus_crop_mask)
@@ -142,7 +148,7 @@ def distance_to_image_border(centroid, image_shape, pixel_scale):
     return min(distances_to_borders)
 
 
-def get_slice_higher_res(bbox_slice, resolution_level, resolution_level_higher):
+def get_high_res_slice(bbox_slice, resolution_level, resolution_level_higher):
     '''
     Compute corresponding slice in higher resolution from current resolution level and compute resolution level.
     params:
@@ -151,7 +157,7 @@ def get_slice_higher_res(bbox_slice, resolution_level, resolution_level_higher):
     - resolution_level_higher: the higher resolution level to compute the slice for
     returns: the slice of the object in the higher resolution level
     '''
-    factor = 2 ** (resolution_level - resolution_level_higher) # higher in this sense is smaller. Highest is 0 (zero)
+    factor = abs(2 ** (resolution_level - resolution_level_higher))
     bbox_higher_res = tuple(slice(int(s.start / factor), int(s.stop * factor)) for s in bbox_slice)
     return bbox_higher_res
 
@@ -166,13 +172,15 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
     - feature_properties: list of properties to extract for each nucleus
     returns: a list of nuclei features in the high resolution image data from lower resolution coordinates.
     '''
-
+    nhsester_channel = image_data_dask[processing_props['resolution_level_higher']][0] # channels are assumed to be in the order of [nhsester, other_channel, nuclei]
     nuclei_channel = image_data_dask[processing_props['resolution_level_higher']][2]
-    nhsester_channel = image_data_dask[processing_props['resolution_level_higher']][0]
+
+    nuclei_props_highres = []
 
     for index, row in tqdm(feature_dataframe.iterrows(), total=feature_dataframe.shape[0], desc="Processing nuclei in high resolution"):
+        original_label = row['label']
         bbox_slice = row['slice']
-        bbox_slice_higher_res = get_slice_higher_res(bbox_slice, processing_props['resolution_level'], processing_props['resolution_level_higher'])
+        bbox_slice_higher_res = get_high_res_slice(bbox_slice, processing_props['resolution_level'], processing_props['resolution_level_higher'])
         nucleus_crop = nuclei_channel[bbox_slice_higher_res].compute()
         nhsester_crop = nhsester_channel[bbox_slice_higher_res].compute()
 
@@ -198,7 +206,12 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
             intensity_image=nucleus_crop_normalized,
             properties=feature_properties
         )
-        nuclei_props_highres = pd.DataFrame(measurements)    
+        nucleus_prop_df = pd.DataFrame(measurements)
+        max_area_obj_index = nucleus_prop_df['area'].idxmax()
+        nucleus_prop_df = nucleus_prop_df.iloc[max_area_obj_index]  # Keep only the largest object
+        nucleus_prop_df['original_label'] = original_label
+        nucleus_prop_df['slice'] = bbox_slice_higher_res  # Store the slice in the higher resolution image
+        nuclei_props_highres.append(nucleus_prop_df)
 
     return pd.DataFrame(nuclei_props_highres)
 
@@ -316,6 +329,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         measurements_df = high_resolution_nuclei_features(dask_data, nuclei_props, processing_props=image_processing_props, feature_properties=feature_properties)
     else:
         measurements_df = nuclei_props
+        nuclei_props = None # clear var from memory
 
     print("Calculating corrected shape measurements for each nucleus...")
 
@@ -325,9 +339,9 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         bbox_slice = row.slice
         centroid = [measurements_df.at[row.Index, 'centroid-0'], measurements_df.at[row.Index, 'centroid-1'], measurements_df.at[row.Index, 'centroid-2']]
         if compute_high_resolution_features == False:
-            corrected_stats = get_corrected_shape_measurements(bbox_slice, nuclei_channel_normalized, nhsester_channel_normalized, threshold_nuclei_otsu)
+            corrected_stats = get_corrected_shape_measurements(bbox_slice=bbox_slice, image_nucleus_channel=nuclei_channel_normalized, image_nhsester_channel=nhsester_channel_normalized, nucleus_threshold=threshold_nuclei_otsu, image_props=None)
         else:
-            corrected_stats = get_corrected_shape_measurements(bbox_slice, nuclei_channel_normalized, nhsester_channel_normalized, threshold_nuclei_otsu)
+            corrected_stats = get_corrected_shape_measurements(bbox_slice=bbox_slice, image_nucleus_channel=dask_data, image_nhsester_channel=None, nucleus_threshold=threshold_nuclei_otsu, image_props=image_processing_props)
         measurements_df.at[row.Index, 'nucleus_total_area'] = corrected_stats['nucleus_total_area']
         measurements_df.at[row.Index, 'area_corrected'] = corrected_stats['area_corrected']
         measurements_df.at[row.Index, 'euler_number_corrected'] = corrected_stats['euler_number_corrected']
@@ -346,7 +360,10 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         measurements_df.at[row.Index, 'nucleolus_volume_fraction'] = corrected_stats['nucleolus_volume_fraction']
 
     print(f"Saving measurements to {save_path}")
-    measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}.csv")
+    if compute_high_resolution_features:
+        measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}_highres_{image_processing_props['resolution_level_higher']}.csv")
+    else:
+        measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}.csv")
     print("Done.")
 
 if __name__ == "__main__":
