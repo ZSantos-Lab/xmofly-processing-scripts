@@ -184,7 +184,7 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
     nhsester_channel = image_data_dask[processing_props['resolution_level_higher']][0][0] # channels are assumed to be in the order of [nhsester, other_channel, nuclei]
     nuclei_channel = image_data_dask[processing_props['resolution_level_higher']][0][2]
 
-    nuclei_props_highres = [feature_properties]
+    nuclei_props_highres = []
 
     for index, row in tqdm(feature_dataframe.iterrows(), total=feature_dataframe.shape[0], desc="Processing nuclei in high resolution"):
         original_label = row['label']
@@ -218,11 +218,11 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
         nucleus_prop_df = pd.DataFrame(measurements)
         max_area_obj_index = nucleus_prop_df['area'].idxmax()
         nucleus_prop_df = nucleus_prop_df.iloc[max_area_obj_index]  # Keep only the largest object
-        nucleus_prop_df['original_label'] = original_label
+        nucleus_prop_df['label'] = original_label
         nucleus_prop_df['slice'] = bbox_slice_higher_res  # Store the slice in the higher resolution image
-        nuclei_props_highres.append([nucleus_prop_df])
+        nuclei_props_highres.append(nucleus_prop_df.to_dict())  # Convert the row to a dictionary and append to the list of nuclei properties
 
-    return pd.DataFrame(nuclei_props_highres)
+    return pd.DataFrame(nuclei_props_highres, columns=feature_properties)
 
 
 def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_level=None, min_voxel_volume=1000, sigma_gaussian=2, compute_high_resolution_features=False):
@@ -347,6 +347,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         image_processing_props['sigma_gaussian'] = sigma_gaussian * resolution_difference_factor  # Adjust sigma for higher resolution
         image_processing_props['pixel_sizes'] = [ps / resolution_difference_factor for ps in pixel_sizes]  # Adjust pixel sizes for higher resolution
         image_processing_props['image_dims'] = dask_data[image_processing_props['resolution_level_higher']].shape[1:]  # Update image dimensions for higher resolution
+        feature_properties = ['label', 'area', 'area_bbox', 'area_convex', 'bbox', 'centroid', 'intensity_mean', 'intensity_max', 'intensity_min', 'intensity_std', 'num_pixels', 'slice', 'axis_major_length', 'axis_minor_length', 'moments', 'moments_central', 'euler_number', 'solidity']
 
         measurements_df = high_resolution_nuclei_features(dask_data, nuclei_props, processing_props=image_processing_props, feature_properties=feature_properties)
     else:
