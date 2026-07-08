@@ -48,10 +48,14 @@ def get_corrected_shape_measurements(bbox_slice, image_nucleus_channel, image_nh
     - nhsester_std_intensity: std intensity of nhsester in the nucleus area
     - nhsester_max_intensity: max intensity of nhsester in the nucleus area
     - nhsester_min_intensity: min intensity of nhsester in the nucleus area
+    - shannon_entropy_dna: shannon entropy of DNA in the nucleus area
+    - shannon_entropy_nhsester: shannon entropy of nhsester in the nucleus
     '''
     if image_nhsester_channel is None and image_props is not None:
-        nucleus_crop = image_nucleus_channel[image_props['resolution_level_higher']][0][2][bbox_slice]
-        nhsester_crop = image_nucleus_channel[image_props['resolution_level_higher']][0][0][bbox_slice]
+        nucleus_crop = image_nucleus_channel[image_props['resolution_level_higher']].squeeze()
+        nucleus_crop = nucleus_crop[2][bbox_slice].compute()
+        nhsester_crop = image_nucleus_channel[image_props['resolution_level_higher']].squeeze()
+        nhsester_crop = nhsester_crop[0][bbox_slice].compute()
         nucleus_crop = (nucleus_crop - image_props['nucleus_channel_min']) / (image_props['nucleus_channel_max'] - image_props['nucleus_channel_min'])
         nhsester_crop = (nhsester_crop - image_props['nhsester_channel_min']) / (image_props['nhsester_channel_max'] - image_props['nhsester_channel_min'])
     else:
@@ -106,6 +110,9 @@ def get_corrected_shape_measurements(bbox_slice, image_nucleus_channel, image_nh
     nhsester_std_intensity = np.std(nhsester_crop)
     nhsester_max_intensity = np.max(nhsester_crop)
     nhsester_min_intensity = np.min(nhsester_crop)
+
+    shannon_entropy_nuclei = shannon_entropy(nucleus_crop)
+    shannon_entropy_nhsester = shannon_entropy(nhsester_crop)
     
     nucleolus_volume_fraction = area_nucleolus_corrected / nucleus_total_area if nucleus_total_area > 0 else 0
     return {
@@ -120,7 +127,9 @@ def get_corrected_shape_measurements(bbox_slice, image_nucleus_channel, image_nh
         "nhsester_mean_intensity": nhsester_mean_intensity,
         "nhsester_std_intensity": nhsester_std_intensity,
         "nhsester_max_intensity": nhsester_max_intensity,
-        "nhsester_min_intensity": nhsester_min_intensity
+        "nhsester_min_intensity": nhsester_min_intensity,
+        "shannon_entropy_nuclei": shannon_entropy_nuclei,
+        "shannon_entropy_nhsester": shannon_entropy_nhsester
     }
 
 
@@ -175,7 +184,7 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
     nhsester_channel = image_data_dask[processing_props['resolution_level_higher']][0][0] # channels are assumed to be in the order of [nhsester, other_channel, nuclei]
     nuclei_channel = image_data_dask[processing_props['resolution_level_higher']][0][2]
 
-    nuclei_props_highres = []
+    nuclei_props_highres = [feature_properties]
 
     for index, row in tqdm(feature_dataframe.iterrows(), total=feature_dataframe.shape[0], desc="Processing nuclei in high resolution"):
         original_label = row['label']
@@ -211,7 +220,7 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
         nucleus_prop_df = nucleus_prop_df.iloc[max_area_obj_index]  # Keep only the largest object
         nucleus_prop_df['original_label'] = original_label
         nucleus_prop_df['slice'] = bbox_slice_higher_res  # Store the slice in the higher resolution image
-        nuclei_props_highres.append(nucleus_prop_df)
+        nuclei_props_highres.append([nucleus_prop_df])
 
     return pd.DataFrame(nuclei_props_highres)
 
@@ -304,6 +313,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         "nhsester_channel_max": nhsester_channel_max,
         "pixel_sizes": pixel_sizes,
         "threshold_nuclei_otsu": threshold_nuclei_otsu,
+        "image_dims": image_array.shape[1:]
     }
 
     print(f"Found {nuclei_labels.max()} objects in the nuclei channel, before filtering")    
@@ -336,6 +346,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         image_processing_props['min_voxel_volume'] = min_voxel_volume * resolution_difference_factor  # Adjust min_voxel_volume for higher resolution
         image_processing_props['sigma_gaussian'] = sigma_gaussian * resolution_difference_factor  # Adjust sigma for higher resolution
         image_processing_props['pixel_sizes'] = [ps / resolution_difference_factor for ps in pixel_sizes]  # Adjust pixel sizes for higher resolution
+        image_processing_props['image_dims'] = dask_data[image_processing_props['resolution_level_higher']].shape[1:]  # Update image dimensions for higher resolution
 
         measurements_df = high_resolution_nuclei_features(dask_data, nuclei_props, processing_props=image_processing_props, feature_properties=feature_properties)
     else:
@@ -358,14 +369,14 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         measurements_df.at[row.Index, 'euler_number_corrected'] = corrected_stats['euler_number_corrected']
         measurements_df.at[row.Index, 'solidity_corrected'] = corrected_stats['solidity_corrected']
         measurements_df.at[row.Index, 'dna_volume_fraction'] = corrected_stats['dna_volume_fraction']
-        measurements_df.at[row.Index, 'distance_to_center'] = distance_to_image_center(centroid, image_array.shape[1:], pixel_sizes)
-        measurements_df.at[row.Index, 'distance_to_border'] = distance_to_image_border(centroid, image_array.shape[1:], pixel_sizes)
-        measurements_df.at[row.Index, 'shannon_entropy_nuclei'] = shannon_entropy(nuclei_channel_normalized[bbox_slice])
+        measurements_df.at[row.Index, 'distance_to_center'] = distance_to_image_center(centroid, image_processing_props['image_dims'], image_processing_props['pixel_sizes'])
+        measurements_df.at[row.Index, 'distance_to_border'] = distance_to_image_border(centroid, image_processing_props['image_dims'], image_processing_props['pixel_sizes'])
+        measurements_df.at[row.Index, 'shannon_entropy_nuclei'] = corrected_stats['shannon_entropy_nuclei']
         measurements_df.at[row.Index, 'nhsester_mean_intensity'] = corrected_stats['nhsester_mean_intensity']
         measurements_df.at[row.Index, 'nhsester_std_intensity'] = corrected_stats['nhsester_std_intensity']
         measurements_df.at[row.Index, 'nhsester_max_intensity'] = corrected_stats['nhsester_max_intensity']
         measurements_df.at[row.Index, 'nhsester_min_intensity'] = corrected_stats['nhsester_min_intensity']
-        measurements_df.at[row.Index, 'shannon_entropy_nhsester'] = shannon_entropy(nhsester_channel_normalized[bbox_slice])
+        measurements_df.at[row.Index, 'shannon_entropy_nhsester'] = corrected_stats['shannon_entropy_nhsester']
         measurements_df.at[row.Index, 'euler_number_nucleoli_corrected'] = corrected_stats['euler_number_nucleoli_corrected']
         measurements_df.at[row.Index, 'area_nucleolus_corrected'] = corrected_stats['area_nucleolus_corrected']
         measurements_df.at[row.Index, 'nucleolus_volume_fraction'] = corrected_stats['nucleolus_volume_fraction']
