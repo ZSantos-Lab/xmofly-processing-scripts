@@ -158,7 +158,7 @@ def get_high_res_slice(bbox_slice, resolution_level, resolution_level_higher):
     returns: the slice of the object in the higher resolution level
     '''
     factor = 2 ** abs(resolution_level - resolution_level_higher)
-    bbox_higher_res = tuple(slice(int(s.start / factor), int(s.stop * factor)) for s in bbox_slice)
+    bbox_higher_res = tuple(slice(int(s.start * factor), int(s.stop * factor)) for s in bbox_slice)
     return bbox_higher_res
 
 
@@ -325,11 +325,17 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     nuclei_props = pd.DataFrame(measurements)
 
     if compute_high_resolution_features:
+        #clear unused vars from memory
+        nuclei_channel_normalized = None
+        nhsester_channel_normalized = None
+
+        #compute new properties for higher resolution
         image_processing_props['resolution_level_higher'] = resolution_level - 1 if resolution_level > 0 else 0
         resolution_difference_factor = 2 ** abs(image_processing_props['resolution_level'] - image_processing_props['resolution_level_higher'])
         image_processing_props['min_voxel_volume'] = min_voxel_volume * resolution_difference_factor  # Adjust min_voxel_volume for higher resolution
         image_processing_props['sigma_gaussian'] = sigma_gaussian * resolution_difference_factor  # Adjust sigma for higher resolution
         image_processing_props['pixel_sizes'] = [ps / resolution_difference_factor for ps in pixel_sizes]  # Adjust pixel sizes for higher resolution
+
         measurements_df = high_resolution_nuclei_features(dask_data, nuclei_props, processing_props=image_processing_props, feature_properties=feature_properties)
     else:
         measurements_df = nuclei_props
