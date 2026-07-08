@@ -312,6 +312,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     print(f"Found {np.unique(nuclei_labels_filtered).size - 1} objects in the nuclei channel, after filtering with min size {min_voxel_volume} voxels")
 
     if compute_high_resolution_features:
+        print(f"Computing high resolution features for each nucleus. Minimum voxel volume and sigma for gaussian filter will be adjusted for higher resolution.")
         feature_properties = ['label', 'area', 'bbox', 'centroid', 'slice']
     else:
         feature_properties = ['label', 'area', 'area_bbox', 'area_convex', 'bbox', 'centroid', 'intensity_mean', 'intensity_max', 'intensity_min', 'intensity_std', 'num_pixels', 'slice', 'axis_major_length', 'axis_minor_length', 'moments', 'moments_central', 'euler_number', 'solidity']
