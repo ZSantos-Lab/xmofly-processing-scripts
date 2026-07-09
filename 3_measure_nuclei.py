@@ -185,6 +185,7 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
     nuclei_channel = image_data_dask[processing_props['resolution_level_higher']][0][2]
 
     nuclei_props_highres = []
+    column_names = None
 
     for index, row in tqdm(feature_dataframe.iterrows(), total=feature_dataframe.shape[0], desc="Processing nuclei in high resolution"):
         original_label = row['label']
@@ -215,14 +216,31 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
             intensity_image=nucleus_crop_normalized,
             properties=feature_properties
         )
+        # store as pandas dict to get the column names and the highest object in case of multiple objects in the cropped image
         nucleus_prop_df = pd.DataFrame(measurements)
+        if column_names is None: column_names = nucleus_prop_df.columns.tolist()
         max_area_obj_index = nucleus_prop_df['area'].idxmax()
         nucleus_prop_df = nucleus_prop_df.iloc[max_area_obj_index]  # Keep only the largest object
         nucleus_prop_df['label'] = original_label
         nucleus_prop_df['slice'] = bbox_slice_higher_res  # Store the slice in the higher resolution image
-        nuclei_props_highres.append(nucleus_prop_df.to_dict())  # Convert the row to a dictionary and append to the list of nuclei properties
 
-    return pd.DataFrame(nuclei_props_highres, columns=feature_properties)
+        # Scale the centroid and bounding box coordinates to the higher resolution
+        nucleus_prop_df['centroid-0'] = row['centroid-0'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
+        nucleus_prop_df['centroid-1'] = row['centroid-1'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
+        nucleus_prop_df['centroid-2'] = row['centroid-2'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
+        nucleus_prop_df['bbox-0'] = row['bbox-0'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
+        nucleus_prop_df['bbox-1'] = row['bbox-1'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
+        nucleus_prop_df['bbox-2'] = row['bbox-2'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
+        nucleus_prop_df['bbox-3'] = row['bbox-3'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
+        nucleus_prop_df['bbox-4'] = row['bbox-4'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
+        nucleus_prop_df['bbox-5'] = row['bbox-5'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
+
+        nuclei_props_highres.append(nucleus_prop_df.to_list())  # Convert the row to a list and append to the list of nuclei properties
+        # TODO: remove these lines after debugging
+        # if index == 0:
+        #     pd.DataFrame(nuclei_props_highres, columns=column_names).to_csv("nuclei_measurements_intermediate.csv")  #Save intermediate results to CSV for debugging
+
+    return pd.DataFrame(nuclei_props_highres, columns=column_names)
 
 
 def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_level=None, min_voxel_volume=1000, sigma_gaussian=2, compute_high_resolution_features=False):
