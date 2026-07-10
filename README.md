@@ -159,13 +159,13 @@ python splitsave_czi_tile.py --dataPath "D:\path\to\image\folder\"
 ```
 
 ___
-### Stitch tiles in 3D
+### Stitch tiles in the Z dimension
 script: `1_multiview_stitcher_3d.py`
 
 **Motivation**: 
 This pipeline is meant to stitch datasets that where split into multiple Substacks for Airyscan processing. 
-This process requires a lot of RAM for processing: 300 z planes -> 256 GB. For this reason, datasets are split into smaller subsets for processing. If a file contains multiple tiles and mosaic data, each tile is processed separately in each run.
-==Note==: this pipeline automatically converts images to `zarr`  if in `czi` format.
+This process requires a lot of RAM for processing, approximately 256 GB of RAM / 300 z planes. For this reason, datasets are split into smaller subsets for processing. If a file contains multiple tiles and mosaic data, each tile is processed separately in each run.
+==Note==: this pipeline automatically converts images to `zarr`.
 
 **Goal**:
 Merge Substacks in 3D using `multiview-stitcher` python package.
