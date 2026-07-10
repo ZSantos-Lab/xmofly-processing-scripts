@@ -369,7 +369,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         image_processing_props['sigma_gaussian'] = sigma_gaussian * resolution_difference_factor  # Adjust sigma for higher resolution
         image_processing_props['pixel_sizes'] = [ps / resolution_difference_factor for ps in pixel_sizes]  # Adjust pixel sizes for higher resolution
         print(f"Adjusted pixel scale for higher resolution: {image_processing_props['pixel_sizes']}")
-        image_processing_props['image_dims'] = dask_data[image_processing_props['resolution_level_higher']].shape[2:]  # Update image dimensions for higher resolution, exclude T and C dimensions
+        image_processing_props['image_dims'] = dask_data[image_processing_props['resolution_level_higher']].shape[2:]  # Update image dimensions for higher resolution, exclude T and C dimensions # TODO: hard coded, should be obtained from metadata
         feature_properties = ['label', 'area', 'area_bbox', 'area_convex', 'bbox', 'centroid', 'intensity_mean', 'intensity_max', 'intensity_min', 'intensity_std', 'num_pixels', 'slice', 'axis_major_length', 'axis_minor_length', 'moments', 'moments_central', 'euler_number', 'solidity']
 
         measurements_df = high_resolution_nuclei_features(dask_data, nuclei_props, processing_props=image_processing_props, feature_properties=feature_properties)
