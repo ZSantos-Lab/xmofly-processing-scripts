@@ -209,7 +209,10 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
 
         nuclei_mask = nucleus_gauss > threshold_nuclei_otsu
         nuclei_labels = label(nuclei_mask)
-        nuclei_labels_filtered = remove_small_objects(nuclei_labels, min_size=processing_props['min_voxel_volume'])
+        if np.unique(nuclei_labels).size - 1 > 1: # to avoid warnings when a single object is passed
+            nuclei_labels_filtered = remove_small_objects(nuclei_labels, min_size=processing_props['min_voxel_volume'])
+        else:
+            nuclei_labels_filtered = nuclei_labels
 
         measurements = regionprops_table(
             nuclei_labels_filtered,
@@ -331,7 +334,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         "nhsester_channel_max": nhsester_channel_max,
         "pixel_sizes": pixel_sizes,
         "threshold_nuclei_otsu": threshold_nuclei_otsu,
-        "image_dims": image_array.shape[1:]
+        "image_dims": image_array.shape[1:] # exclude channel dimension
     }
 
     print(f"Found {nuclei_labels.max()} objects in the nuclei channel, before filtering")    
@@ -357,6 +360,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         #clear unused vars from memory
         nuclei_channel_normalized = None
         nhsester_channel_normalized = None
+        nuclei_labels_filtered = None
 
         #compute new properties for higher resolution
         image_processing_props['resolution_level_higher'] = resolution_level - 1 if resolution_level > 0 else 0
@@ -364,7 +368,8 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         image_processing_props['min_voxel_volume'] = min_voxel_volume * resolution_difference_factor  # Adjust min_voxel_volume for higher resolution
         image_processing_props['sigma_gaussian'] = sigma_gaussian * resolution_difference_factor  # Adjust sigma for higher resolution
         image_processing_props['pixel_sizes'] = [ps / resolution_difference_factor for ps in pixel_sizes]  # Adjust pixel sizes for higher resolution
-        image_processing_props['image_dims'] = dask_data[image_processing_props['resolution_level_higher']].shape[1:]  # Update image dimensions for higher resolution
+        print(f"Adjusted pixel scale for higher resolution: {image_processing_props['pixel_sizes']}")
+        image_processing_props['image_dims'] = dask_data[image_processing_props['resolution_level_higher']].shape[2:]  # Update image dimensions for higher resolution, exclude T and C dimensions
         feature_properties = ['label', 'area', 'area_bbox', 'area_convex', 'bbox', 'centroid', 'intensity_mean', 'intensity_max', 'intensity_min', 'intensity_std', 'num_pixels', 'slice', 'axis_major_length', 'axis_minor_length', 'moments', 'moments_central', 'euler_number', 'solidity']
 
         measurements_df = high_resolution_nuclei_features(dask_data, nuclei_props, processing_props=image_processing_props, feature_properties=feature_properties)
