@@ -21,7 +21,7 @@ parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFo
 parser.add_argument("--dataPath", help="The path to your data")
 parser.add_argument("--extension", help="The extension of the files to be processed", default='.zarr')
 parser.add_argument("--computeDaskData", help="Load full data to memory or chunked with dask", default=True, type=bool)
-parser.add_argument("--resolutionLevel", help="The resolution level to process, 0 for highest resolution", default=None, type=int)
+parser.add_argument("--resolutionLevel", help="The resolution level to process, 0 for highest resolution. If left empty, prompt will ask for a new value.", default=None, type=int)
 parser.add_argument("--minVoxelVolume", help="The minimum volume of objects to be considered in nb of voxels", default=1000, type=int)
 parser.add_argument("--sigmaGaussian", help="The sigma for the gaussian filter applied to the nuclei channel before thresholding", default=2, type=float)
 
