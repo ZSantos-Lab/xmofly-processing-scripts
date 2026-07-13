@@ -116,14 +116,11 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
         nucleus_prop_df['bbox-5'] = row['bbox-5'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
 
         nuclei_props_highres.append(nucleus_prop_df.to_list())  # Convert the row to a list and append to the list of nuclei properties
-        # TODO: remove these lines after debugging
-        # if index == 0:
-        #     pd.DataFrame(nuclei_props_highres, columns=column_names).to_csv("nuclei_measurements_intermediate.csv")  #Save intermediate results to CSV for debugging
 
     return pd.DataFrame(nuclei_props_highres, columns=column_names)
 
 
-def get_gray_coocurrence_matrix(bbox_slice, image_channel, distances=[0], angles=[0], levels=256):
+def get_gray_coocurrence_matrix(image_channel, bbox=None, distances=[0], angles=[0], levels=256):
     '''
     Calculate the gray level co-occurrence matrix (GLCM) for the given image channel within the bounding box slice.
     Due to size and resolution of analyzed datasets, distance values are set to be far from the computed pixel to capture patter differences.
@@ -131,7 +128,10 @@ def get_gray_coocurrence_matrix(bbox_slice, image_channel, distances=[0], angles
     returns the glcm
     '''
     glcm_properties = ['contrast', 'dissimilarity', 'homogeneity'] # more propertoes available: 'energy', 'correlation', 'ASM'
-    image_crop = np.array(image_channel[bbox_slice])
+    if bbox is not None:
+        image_crop = np.array(image_channel[bbox])
+    else:
+        image_crop = image_channel
     if len(image_crop.shape) > 2:
         image_crop = image_crop[image_crop.shape[0]//2, ...] # take the middle slice if 3D
         image_crop =  image_crop.squeeze()
@@ -301,13 +301,13 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
             nucleus_crop_channel = image_data[2][bbox_slice].compute()
             nhsester_crop_channel = image_data[0][bbox_slice].compute()
 
-            texture_stats_dna = get_gray_coocurrence_matrix(bbox_slice, nucleus_crop_channel, distances=glcm_distances, angles=glcm_angles, levels=256)
-            texture_stats_nhsester = get_gray_coocurrence_matrix(bbox_slice, nhsester_crop_channel, distances=glcm_distances, angles=glcm_angles, levels=256)
+            texture_stats_dna = get_gray_coocurrence_matrix(nucleus_crop_channel, bbox=None, distances=glcm_distances, angles=glcm_angles, levels=256)
+            texture_stats_nhsester = get_gray_coocurrence_matrix(nhsester_crop_channel, bbox=None, distances=glcm_distances, angles=glcm_angles, levels=256)
             shannon_entropy_nuclei = shannon_entropy(nucleus_crop_channel)
             shannon_entropy_nhsester = shannon_entropy(nhsester_crop_channel)
         else:
-            texture_stats_dna = get_gray_coocurrence_matrix(bbox_slice, nuclei_channel, distances=glcm_distances, angles=glcm_angles, levels=256)
-            texture_stats_nhsester = get_gray_coocurrence_matrix(bbox_slice, nhsester_channel, distances=glcm_distances, angles=glcm_angles, levels=256)
+            texture_stats_dna = get_gray_coocurrence_matrix(nuclei_channel, bbox=bbox_slice, distances=glcm_distances, angles=glcm_angles, levels=256)
+            texture_stats_nhsester = get_gray_coocurrence_matrix(nhsester_channel, bbox=bbox_slice, distances=glcm_distances, angles=glcm_angles, levels=256)
             shannon_entropy_nuclei = shannon_entropy(nuclei_channel[bbox_slice])
             shannon_entropy_nhsester = shannon_entropy(nhsester_channel[bbox_slice])
         
