@@ -217,7 +217,8 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
         measurements = regionprops_table(
             nuclei_labels_filtered,
             intensity_image=nucleus_crop_normalized,
-            properties=feature_properties
+            properties=feature_properties,
+            spacing=tuple(processing_props['pixel_sizes'])
         )
         # store as pandas dict to get the column names and the highest object in case of multiple objects in the cropped image
         nucleus_prop_df = pd.DataFrame(measurements)
