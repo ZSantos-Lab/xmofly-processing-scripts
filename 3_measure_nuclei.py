@@ -239,9 +239,6 @@ def high_resolution_nuclei_features(image_data_dask, feature_dataframe, processi
         nucleus_prop_df['bbox-5'] = row['bbox-5'] * (2 ** abs(processing_props['resolution_level'] - processing_props['resolution_level_higher']))
 
         nuclei_props_highres.append(nucleus_prop_df.to_list())  # Convert the row to a list and append to the list of nuclei properties
-        # TODO: remove these lines after debugging
-        # if index == 0:
-        #     pd.DataFrame(nuclei_props_highres, columns=column_names).to_csv("nuclei_measurements_intermediate.csv")  #Save intermediate results to CSV for debugging
 
     return pd.DataFrame(nuclei_props_highres, columns=column_names)
 
