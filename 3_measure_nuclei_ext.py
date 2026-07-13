@@ -336,7 +336,10 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         
 
     print(f"Saving measurements to {save_path}")
-    measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}_extended.csv")
+    if compute_high_resolution_features:
+        measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}_highres_{image_processing_props['resolution_level_higher']}_extended.csv")
+    else:
+        measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}_extended.csv")
     print("Done.")
 
 if __name__ == "__main__":
