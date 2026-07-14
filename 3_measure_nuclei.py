@@ -323,7 +323,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
 
     image_processing_props = {
         "resolution_level": resolution_level,
-        "resolution_level_higher": None,
+        "resolution_level_higher": 1, # for nuclei analysis purposes, highest resolution will be 1 for consistency
         "min_voxel_volume": min_voxel_volume,
         "sigma_gaussian": sigma_gaussian,
         "nucleus_channel_min": nucleus_channel_min,
@@ -361,7 +361,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         nuclei_labels_filtered = None
 
         #compute new properties for higher resolution
-        image_processing_props['resolution_level_higher'] = resolution_level - 1 if resolution_level > 0 else 0
+        if image_processing_props['resolution_level_higher'] == None: image_processing_props['resolution_level_higher'] = resolution_level - 1 if resolution_level > 0 else 0
         resolution_difference_factor = 2 ** abs(image_processing_props['resolution_level'] - image_processing_props['resolution_level_higher'])
         image_processing_props['min_voxel_volume'] = min_voxel_volume * resolution_difference_factor  # Adjust min_voxel_volume for higher resolution
         image_processing_props['sigma_gaussian'] = sigma_gaussian * resolution_difference_factor  # Adjust sigma for higher resolution
