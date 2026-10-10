@@ -80,6 +80,8 @@ def get_corrected_shape_measurements(bbox_slice, image_nucleus_channel, image_nh
     combined_mask = np.logical_or(nucleus_crop_mask, nhsester_crop_mask)
     combined_labels = label(combined_mask)
     combined_measurements = regionprops(combined_labels)
+    if len(combined_measurements) == 0:
+        return None
 
     nucleus_total_area = 0
     if len(combined_measurements) > 1:
@@ -369,12 +371,37 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     else:
         feature_properties = ['label', 'area', 'area_bbox', 'area_convex', 'bbox', 'centroid', 'intensity_mean', 'intensity_max', 'intensity_min', 'intensity_std', 'num_pixels', 'slice', 'axis_major_length', 'axis_minor_length', 'moments', 'moments_central', 'euler_number', 'solidity']
 
-    measurements = regionprops_table(
-        nuclei_labels_downscaled,
-        intensity_image=downscaled_nuclei_channel,
-        properties=feature_properties,
-        spacing=downscaled_pixel_sizes,
-    )
+    try:
+        measurements = regionprops_table(
+            nuclei_labels_downscaled,
+            intensity_image=downscaled_nuclei_channel,
+            properties=feature_properties,
+            spacing=downscaled_pixel_sizes,
+        )
+    except:
+        downscaled_nuclei_channel = downscale_local_mean(nuclei_channel_normalized, factors=(2,4,4))
+        downscaled_nuclei_channel = gaussian_filter(downscaled_nuclei_channel, sigma=2)
+    
+        downscaled_nhsester_channel = downscale_local_mean(nhsester_channel_normalized, factors=(2,4,4))
+        downscaled_nhsester_channel = gaussian_filter(downscaled_nhsester_channel, sigma=2)
+    
+        nuclei_labels_downscaled = resize(nuclei_labels_filtered, downscaled_nuclei_channel.shape, order=0, preserve_range=True)
+        nuclei_labels_downscaled = median_filter(nuclei_labels_downscaled, size=4)
+        nuclei_labels_downscaled = maximum_filter(nuclei_labels_downscaled, size=3)
+    
+        downscaled_pixel_sizes = tuple(ps * factor for ps, factor in zip(pixel_sizes, (2,4,4)))
+        print(f"Downscaled pixel sizes: {downscaled_pixel_sizes}")
+    
+        print(f"Downscaled image dimensions: {downscaled_nuclei_channel.shape}")
+        image_processing_props['image_dims'] = downscaled_nuclei_channel.shape
+        image_processing_props['pixel_sizes'] = downscaled_pixel_sizes
+        measurements = regionprops_table(
+            nuclei_labels_downscaled,
+            intensity_image=downscaled_nuclei_channel,
+            properties=feature_properties,
+            spacing=downscaled_pixel_sizes,
+        )
+
     nuclei_props = pd.DataFrame(measurements)
 
     if compute_high_resolution_features:
@@ -409,6 +436,9 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
             corrected_stats = get_corrected_shape_measurements(bbox_slice=bbox_slice, image_nucleus_channel=downscaled_nuclei_channel, image_nhsester_channel=downscaled_nhsester_channel, nucleus_threshold=threshold_nuclei_otsu, image_props=None)
         else:
             corrected_stats = get_corrected_shape_measurements(bbox_slice=bbox_slice, image_nucleus_channel=dask_data, image_nhsester_channel=None, nucleus_threshold=threshold_nuclei_otsu, image_props=image_processing_props)
+        if corrected_stats is None:
+            continue
+        
         measurements_df.at[row.Index, 'nucleus_total_area'] = corrected_stats['nucleus_total_area']
         measurements_df.at[row.Index, 'area_corrected'] = corrected_stats['area_corrected']
         measurements_df.at[row.Index, 'euler_number_corrected'] = corrected_stats['euler_number_corrected']
