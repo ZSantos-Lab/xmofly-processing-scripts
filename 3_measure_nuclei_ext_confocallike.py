@@ -6,11 +6,13 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="skimage.measure._regionprops")
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, median_filter, maximum_filter
 from skimage.measure import regionprops_table, label, shannon_entropy
 from skimage.feature import graycomatrix, graycoprops
 from skimage.filters import threshold_otsu
 from skimage.morphology import remove_small_objects
+from skimage.transform import downscale_local_mean, resize
+
 import pandas as pd
 
 from ome_zarr.io import parse_url
@@ -218,11 +220,34 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
 
 
     # Nuclei segmentation
+    # full resolution data is used to segment nuclei, downscaled data is harder to segment
+    # guassian sigma for nuclei segmentation
     nuclei_gauss = gaussian_filter(nuclei_channel_normalized, sigma=sigma_gaussian)
 
     threshold_nuclei_otsu = threshold_otsu(nuclei_gauss)
     nuclei_mask = nuclei_gauss > threshold_nuclei_otsu
     nuclei_labels = label(nuclei_mask)
+
+    print(f"Found {nuclei_labels.max()} objects in the nuclei channel, before filtering")    
+    
+    nuclei_labels_filtered = remove_small_objects(nuclei_labels, min_size=min_voxel_volume)
+    print(f"Found {np.unique(nuclei_labels_filtered).size - 1} objects in the nuclei channel, after filtering with min size {min_voxel_volume} voxels")
+
+    # downscaling data to mimic confocal-like resolution
+    downscaled_nuclei_channel = downscale_local_mean(nuclei_channel_normalized, factors=(2,4,4))
+    downscaled_nuclei_channel = gaussian_filter(downscaled_nuclei_channel, sigma=2)
+
+    downscaled_nhsester_channel = downscale_local_mean(nhsester_channel_normalized, factors=(2,4,4))
+    downscaled_nhsester_channel = gaussian_filter(downscaled_nhsester_channel, sigma=2)
+
+    nuclei_labels_downscaled = resize(nuclei_labels_filtered, downscaled_nuclei_channel.shape, order=0, preserve_range=True)
+    nuclei_labels_downscaled = median_filter(nuclei_labels_downscaled, size=4)
+    nuclei_labels_downscaled = maximum_filter(nuclei_labels_downscaled, size=3)
+
+    downscaled_pixel_sizes = tuple(ps * factor for ps, factor in zip(pixel_sizes, (2,4,4)))
+    print(f"Downscaled pixel sizes: {downscaled_pixel_sizes}")
+
+    print(f"Downscaled image dimensions: {downscaled_nuclei_channel.shape}")
 
     image_processing_props = {
         "resolution_level": resolution_level,
@@ -233,15 +258,11 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         "nucleus_channel_max": nucleus_channel_max,
         "nhsester_channel_min": nhsester_channel_min,
         "nhsester_channel_max": nhsester_channel_max,
-        "pixel_sizes": pixel_sizes,
+        "pixel_sizes": downscaled_pixel_sizes,
         "threshold_nuclei_otsu": threshold_nuclei_otsu,
-        "image_dims": image_array.shape[1:] # exclude channel dimension
+        "image_dims": downscaled_nuclei_channel.shape # exclude channel dimension
     }
 
-    print(f"Found {nuclei_labels.max()} objects in the nuclei channel, before filtering")    
-    
-    nuclei_labels_filtered = remove_small_objects(nuclei_labels, min_size=min_voxel_volume)
-    print(f"Found {np.unique(nuclei_labels_filtered).size - 1} objects in the nuclei channel, after filtering with min size {min_voxel_volume} voxels")
 
     if compute_high_resolution_features:
         print(f"Computing high resolution features for each nucleus. Minimum voxel volume and sigma for gaussian filter will be adjusted for higher resolution.")
@@ -250,10 +271,10 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
         feature_properties = ['label', 'area', 'area_bbox', 'bbox', 'centroid', 'num_pixels', 'slice']
 
     measurements = regionprops_table(
-        nuclei_labels_filtered,
-        intensity_image=nuclei_channel_normalized,
+        nuclei_labels_downscaled,
+        intensity_image=downscaled_nuclei_channel,
         properties=feature_properties,
-        spacing=tuple(pixel_sizes)
+        spacing=downscaled_pixel_sizes
     )
     nuclei_props = pd.DataFrame(measurements)
 
@@ -307,10 +328,10 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
             shannon_entropy_nuclei = shannon_entropy(nucleus_crop_channel)
             shannon_entropy_nhsester = shannon_entropy(nhsester_crop_channel)
         else:
-            texture_stats_dna = get_gray_coocurrence_matrix(nuclei_channel, bbox=bbox_slice, distances=glcm_distances, angles=glcm_angles, levels=256)
-            texture_stats_nhsester = get_gray_coocurrence_matrix(nhsester_channel, bbox=bbox_slice, distances=glcm_distances, angles=glcm_angles, levels=256)
-            shannon_entropy_nuclei = shannon_entropy(nuclei_channel[bbox_slice])
-            shannon_entropy_nhsester = shannon_entropy(nhsester_channel[bbox_slice])
+            texture_stats_dna = get_gray_coocurrence_matrix(downscaled_nuclei_channel, bbox=bbox_slice, distances=glcm_distances, angles=glcm_angles, levels=256)
+            texture_stats_nhsester = get_gray_coocurrence_matrix(downscaled_nhsester_channel, bbox=bbox_slice, distances=glcm_distances, angles=glcm_angles, levels=256)
+            shannon_entropy_nuclei = shannon_entropy(downscaled_nuclei_channel[bbox_slice])
+            shannon_entropy_nhsester = shannon_entropy(downscaled_nhsester_channel[bbox_slice])
         
         measurements_df.at[row.Index, 'shannon_entropy_nuclei'] = shannon_entropy_nuclei
         measurements_df.at[row.Index, 'shannon_entropy_nhsester'] = shannon_entropy_nhsester
@@ -338,9 +359,9 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
 
     print(f"Saving measurements to {save_path}")
     if compute_high_resolution_features:
-        measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}_highres_{image_processing_props['resolution_level_higher']}_extended.csv")
+        measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}_highres_{image_processing_props['resolution_level_higher']}_extended_confocallike.csv")
     else:
-        measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}_extended.csv")
+        measurements_df.to_csv(save_path / f"{filename}_nuclei_measurements_reslevel_{resolution_level}_extended_confocallike.csv")
     print("Done.")
 
 if __name__ == "__main__":
