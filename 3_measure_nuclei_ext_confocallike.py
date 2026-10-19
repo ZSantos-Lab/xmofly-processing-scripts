@@ -131,6 +131,7 @@ def get_gray_coocurrence_matrix(image_channel, bbox=None, distances=[0], angles=
     returns the glcm
     '''
     glcm_properties = ['contrast', 'dissimilarity', 'homogeneity'] # more propertoes available: 'energy', 'correlation', 'ASM'
+    n_properties = len(angles) * len(distances)
     if bbox is not None:
         image_crop = np.array(image_channel[bbox])
     else:
@@ -139,8 +140,11 @@ def get_gray_coocurrence_matrix(image_channel, bbox=None, distances=[0], angles=
         image_crop = image_crop[image_crop.shape[0]//2, ...] # take the middle slice if 3D
         image_crop =  image_crop.squeeze()
     image_crop = (image_crop / image_crop.max() * (levels - 1)).astype('uint16') # rescale to the number of levels
-    glcm = graycomatrix(image_crop, distances=distances, angles=angles, levels=levels)
-    glcm_features = {prop: graycoprops(glcm, prop) for prop in glcm_properties}
+    try:
+        glcm = graycomatrix(image_crop, distances=distances, angles=angles, levels=levels)
+        glcm_features = {prop: graycoprops(glcm, prop) for prop in glcm_properties}
+    except:
+        glcm_features = {prop: np.array([np.nan] * n_properties) for prop in glcm_properties}
     return {
         'contrast': glcm_features['contrast'],
         'dissimilarity': glcm_features['dissimilarity'],
