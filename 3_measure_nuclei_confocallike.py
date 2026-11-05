@@ -258,6 +258,11 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     print(f"Processing {filename}...")
     # database_name = "name" # TODO: extract path and name from database
 
+    exm_factor_filepath = Path('/mnt/Data/nuno_martins/code/python_scripts_notebooks/czi_tests/info_tables/exm_factor_list.csv')
+    exm_factor_df = pd.read_csv(exm_factor_filepath)
+    exm_factor = exm_factor_df.loc[exm_factor_df['filename'] == filename, 'expansion_factor'].values[0]
+    print(f"Using expansion factor: {exm_factor}")
+
     current_dir = Path.cwd()
     save_path = current_dir / "nuclei_measurements_confocallike"
     if not save_path.exists():
@@ -337,17 +342,33 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     print(f"Found {np.unique(nuclei_labels_filtered).size - 1} objects in the full scale nuclei channel, after filtering with min size {min_voxel_volume} voxels")
 
     # downscaling data to mimic confocal-like resolution
-    downscaled_nuclei_channel = downscale_local_mean(nuclei_channel_normalized, factors=(2,4,4))
-    downscaled_nuclei_channel = gaussian_filter(downscaled_nuclei_channel, sigma=2)
+    # estimating theoretical resolution after expansion
+    theoretical_resolution = np.array([0.650, 0.250, 0.250])
+    theoretical_resolution = theoretical_resolution * exm_factor
+    print(f"Theoretical resolution after expansion: {theoretical_resolution}")
+    exp_resolution_px = theoretical_resolution / pixel_sizes
+    print(f"Theoretical resolution in pixels after expansion: {exp_resolution_px}")
+    gaussian_sigma_px = exp_resolution_px / 2.355 # theoretical Gaussian sigma in pixels
+    print(f"Gaussian sigma in pixels adjusted to expansion factor: {gaussian_sigma_px}")
 
-    downscaled_nhsester_channel = downscale_local_mean(nhsester_channel_normalized, factors=(2,4,4))
-    downscaled_nhsester_channel = gaussian_filter(downscaled_nhsester_channel, sigma=2)
+    # estimating confocal resolution adjusted by expansion factor
+    confocal_resolution = np.array([pixel_sizes]) * exm_factor
+    confocal__resolution_target = np.array([0.300, 0.100, 0.100])
+    confocal_downscale_factors = confocal_resolution / confocal__resolution_target
+    confocal_downscale_factors = confocal_downscale_factors.round(0).astype(int)
+    print(f"Confocal downscaling factors: {confocal_downscale_factors}")
+
+    downscaled_nuclei_channel = gaussian_filter(nuclei_channel_normalized, sigma=gaussian_sigma_px)
+    downscaled_nuclei_channel = downscale_local_mean(image=downscaled_nuclei_channel, factors=tuple(confocal_downscale_factors))
+
+    downscaled_nhsester_channel = gaussian_filter(nhsester_channel_normalized, sigma=gaussian_sigma_px)
+    downscaled_nhsester_channel = downscale_local_mean(image=downscaled_nhsester_channel, factors=tuple(confocal_downscale_factors))
 
     nuclei_labels_downscaled = resize(nuclei_labels_filtered, downscaled_nuclei_channel.shape, order=0, preserve_range=True)
-    nuclei_labels_downscaled = median_filter(nuclei_labels_downscaled, size=4)
-    nuclei_labels_downscaled = maximum_filter(nuclei_labels_downscaled, size=3)
+    nuclei_labels_downscaled = median_filter(nuclei_labels_downscaled, size=tuple([1,2,2]))
+    nuclei_labels_downscaled = maximum_filter(nuclei_labels_downscaled, size=tuple([1,2,2]))
 
-    downscaled_pixel_sizes = tuple(ps * factor for ps, factor in zip(pixel_sizes, (2,4,4)))
+    downscaled_pixel_sizes = pixel_sizes * confocal_downscale_factors
     print(f"Downscaled pixel sizes: {downscaled_pixel_sizes}")
 
     print(f"Downscaled image dimensions: {downscaled_nuclei_channel.shape}")
