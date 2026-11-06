@@ -392,14 +392,48 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     else:
         feature_properties = ['label', 'area', 'area_bbox', 'area_convex', 'bbox', 'centroid', 'intensity_mean', 'intensity_max', 'intensity_min', 'intensity_std', 'num_pixels', 'slice', 'axis_major_length', 'axis_minor_length', 'moments', 'moments_central', 'euler_number', 'solidity']
 
-    measurements = regionprops_table(
+    measurements = regionprops(
         nuclei_labels_downscaled,
         intensity_image=downscaled_nuclei_channel,
-        properties=feature_properties,
-        spacing=downscaled_pixel_sizes,
+        spacing=downscaled_pixel_sizes
     )
 
-    nuclei_props = pd.DataFrame(measurements)
+    nuclei_props_list = []
+    for measurement in measurements:
+        if measurement.bbox[3] < 2:
+            bbox_measurement = measurement.bbox
+            bbox_slice = tuple([slice(bbox_measurement[i], bbox_measurement[i + 3]) for i in range(3)])
+            downscaled_labels_cropped = nuclei_labels_downscaled[bbox_slice].squeeze()
+            downscaled_nuclei_cropped = downscaled_nuclei_channel[bbox_slice].squeeze()
+            props_temp = regionprops_table(
+                downscaled_labels_cropped,
+                intensity_image=downscaled_nuclei_cropped,
+                properties=feature_properties,
+                spacing=downscaled_pixel_sizes[1:]
+            )
+            nuclei_props_list.append(props_temp)
+        else:
+            bbox_measurement = measurement.bbox
+            bbox_slice = tuple([slice(bbox_measurement[i], bbox_measurement[i + 3]) for i in range(3)])
+            downscaled_labels_cropped = nuclei_labels_downscaled[bbox_slice]
+            downscaled_nuclei_cropped = downscaled_nuclei_channel[bbox_slice]
+            props_temp = regionprops_table(
+                downscaled_labels_cropped,
+                intensity_image=downscaled_nuclei_cropped,
+                properties=feature_properties,
+                spacing=downscaled_pixel_sizes
+            )
+            nuclei_props_list.append(props_temp)
+
+    # measurements = regionprops_table(
+    #     nuclei_labels_downscaled,
+    #     intensity_image=downscaled_nuclei_channel,
+    #     properties=feature_properties,
+    #     spacing=downscaled_pixel_sizes,
+    # )
+
+    # nuclei_props = pd.DataFrame(measurements)
+    nuclei_props = pd.DataFrame(nuclei_props_list)
 
     if compute_high_resolution_features:
         #clear unused vars from memory
