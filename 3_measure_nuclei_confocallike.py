@@ -262,8 +262,11 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     exm_factor_df = pd.read_csv(exm_factor_filepath)
     exm_factor = exm_factor_df.loc[exm_factor_df['filename'] == filename, 'expansion_factor'].values[0]
     print(f"Using expansion factor: {exm_factor}")
-    if exm_factor == "na":
-        print("Expansion factor not available for this dataset. Exiting.")
+
+    try:
+        exm_factor = float(exm_factor)  # Convert the expansion factor to a float
+    except:
+        print(f"Expansion factor ({exm_factor}) not available for this dataset. Exiting.")
         exit(1)
 
     current_dir = Path.cwd()
@@ -359,6 +362,7 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     confocal__resolution_target = np.array([0.300, 0.100, 0.100])
     confocal_downscale_factors = confocal_resolution / confocal__resolution_target
     confocal_downscale_factors = confocal_downscale_factors.round(0).astype(int)
+    confocal_downscale_factors = confocal_downscale_factors.squeeze()
     print(f"Confocal downscaling factors: {confocal_downscale_factors}")
 
     downscaled_nuclei_channel = gaussian_filter(nuclei_channel_normalized, sigma=gaussian_sigma_px)
@@ -402,22 +406,14 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     )
 
     nuclei_props_list = []
-    for measurement in measurements:
-        if measurement.bbox[3] < 2:
+    for measurement in tqdm(measurements, desc="Processing nuclei measurements"):
+        original_bbox = measurement.bbox
+        original_centroid = measurement.centroid
+        original_slice = measurement.slice
+        props_temp = None
+        try:
             bbox_measurement = measurement.bbox
-            bbox_slice = tuple([slice(bbox_measurement[i], bbox_measurement[i + 3]) for i in range(3)])
-            downscaled_labels_cropped = nuclei_labels_downscaled[bbox_slice].squeeze()
-            downscaled_nuclei_cropped = downscaled_nuclei_channel[bbox_slice].squeeze()
-            props_temp = regionprops_table(
-                downscaled_labels_cropped,
-                intensity_image=downscaled_nuclei_cropped,
-                properties=feature_properties,
-                spacing=downscaled_pixel_sizes[1:]
-            )
-            nuclei_props_list.append(props_temp)
-        else:
-            bbox_measurement = measurement.bbox
-            bbox_slice = tuple([slice(bbox_measurement[i], bbox_measurement[i + 3]) for i in range(3)])
+            bbox_slice = tuple([slice(bbox_measurement[0], bbox_measurement[3]),slice(bbox_measurement[1], bbox_measurement[4]), slice(bbox_measurement[2], bbox_measurement[5])])
             downscaled_labels_cropped = nuclei_labels_downscaled[bbox_slice]
             downscaled_nuclei_cropped = downscaled_nuclei_channel[bbox_slice]
             props_temp = regionprops_table(
@@ -426,7 +422,26 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
                 properties=feature_properties,
                 spacing=downscaled_pixel_sizes
             )
-            nuclei_props_list.append(props_temp)
+        except:
+            downscaled_labels_cropped = downscaled_labels_cropped[downscaled_labels_cropped.shape[0]//2]
+            downscaled_nuclei_cropped = downscaled_nuclei_cropped[downscaled_nuclei_cropped.shape[0]//2]
+            props_temp = regionprops_table(
+                downscaled_labels_cropped,
+                intensity_image=downscaled_nuclei_cropped,
+                properties=feature_properties,
+                spacing=downscaled_pixel_sizes[1:]
+            )
+        props_temp['bbox-0'] = np.float64(original_bbox[0])
+        props_temp['bbox-1'] = np.float64(original_bbox[1])
+        props_temp['bbox-2'] = np.float64(original_bbox[2])
+        props_temp['bbox-3'] = np.float64(original_bbox[3])
+        props_temp['bbox-4'] = np.float64(original_bbox[4])
+        props_temp['bbox-5'] = np.float64(original_bbox[5])
+        props_temp['centroid-0'] = np.float64(original_centroid[0])
+        props_temp['centroid-1'] = np.float64(original_centroid[1])
+        props_temp['centroid-2'] = np.float64(original_centroid[2])
+        props_temp['slice'] = tuple(original_slice)
+        nuclei_props_list.append(props_temp)
 
     # measurements = regionprops_table(
     #     nuclei_labels_downscaled,
