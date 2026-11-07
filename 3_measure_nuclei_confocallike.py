@@ -262,6 +262,9 @@ def main(datapath='.', extension='.tif', compute_dask_data=True, resolution_leve
     exm_factor_df = pd.read_csv(exm_factor_filepath)
     exm_factor = exm_factor_df.loc[exm_factor_df['filename'] == filename, 'expansion_factor'].values[0]
     print(f"Using expansion factor: {exm_factor}")
+    if exm_factor == "na":
+        print("Expansion factor not available for this dataset. Exiting.")
+        exit(1)
 
     current_dir = Path.cwd()
     save_path = current_dir / "nuclei_measurements_confocallike"
